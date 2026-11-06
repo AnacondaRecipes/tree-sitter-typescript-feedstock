@@ -7,8 +7,10 @@ package:
   version: {{ version }}
 
 source:
-  url: https://pypi.org/packages/source/{{ name[0] }}/{{ pypi_name }}/{{ pypi_name }}-{{ version }}.tar.gz
-  sha256: 7b167b5827c882261cb7a50dfa0fb567975f9b315e87ed87ad0a0a3aedb3834d
+  # GitHub tag tarball, not the PyPI sdist: the sdist strips the vendored
+  # tree_sitter/parser.h headers both grammars need to compile.
+  url: https://github.com/tree-sitter/tree-sitter-typescript/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: 2c4ce711ae8d1218a3b2f899189298159d672870b5b34dff5d937bed2f3e8983
 
 build:
   number: 0
@@ -36,15 +38,15 @@ requirements:
 test:
   requires:
     - pip
+    - tree_sitter
   imports:
     - tree_sitter_typescript
   commands:
     - pip check
-    # grammar sanity without the 'tree_sitter' binding package (not on pkgs/main):
-    # unwrap each language capsule and read the TSLanguage struct's first int32,
-    # which is the grammar ABI version (LANGUAGE_VERSION in src/parser.c);
-    # the sdist ships BOTH the typescript and tsx grammars
-    - python -c "import ctypes; import tree_sitter_typescript; ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p; ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]; get = ctypes.pythonapi.PyCapsule_GetPointer; ts_ptr = get(tree_sitter_typescript.language_typescript(), b'tree_sitter.Language'); tsx_ptr = get(tree_sitter_typescript.language_tsx(), b'tree_sitter.Language'); ts_abi = ctypes.c_int32.from_address(ts_ptr).value; tsx_abi = ctypes.c_int32.from_address(tsx_ptr).value; assert ts_abi == 14, ts_abi; assert tsx_abi == 14, tsx_abi"
+    # parse with the core binding (tree_sitter) to prove both shipped grammars
+    # load and produce the expected root node; abi_version cross-checks each
+    # grammar's LANGUAGE_VERSION with the runtime
+    - python -c "import tree_sitter, tree_sitter_typescript; ts = tree_sitter.Language(tree_sitter_typescript.language_typescript()); tsx = tree_sitter.Language(tree_sitter_typescript.language_tsx()); assert ts.abi_version == 14 and tsx.abi_version == 14; assert tree_sitter.Parser(ts).parse(b'const x = 1;').root_node.type == 'program'; assert tree_sitter.Parser(tsx).parse(b'const el = <div />;').root_node.type == 'program'"
 
 about:
   home: https://github.com/tree-sitter/tree-sitter-typescript
